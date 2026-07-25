@@ -15,14 +15,38 @@ export function getTodayKey(): string {
  * Deterministically picks today's phrase from the local calendar date,
  * so it stays the same across reloads within the same day.
  */
-export function getTodayPhrase(): Phrase {
+export function getTodayPhraseIndex(): number {
   const todayKey = getTodayKey();
   let hash = 0;
   for (let i = 0; i < todayKey.length; i++) {
     hash = (hash * 31 + todayKey.charCodeAt(i)) >>> 0;
   }
-  const index = hash % phrases.length;
+  return hash % phrases.length;
+}
+
+export function getTodayPhrase(): Phrase {
+  return phrases[getTodayPhraseIndex()];
+}
+
+/**
+ * Picks another phrase, skipping ones already seen today when possible.
+ */
+export function getAnotherPhrase(seenIndexes: number[]): Phrase {
+  if (seenIndexes.length >= phrases.length) {
+    const next = (seenIndexes[seenIndexes.length - 1] + 1) % phrases.length;
+    return phrases[next];
+  }
+
+  const seen = new Set(seenIndexes);
+  let index = (seenIndexes[seenIndexes.length - 1] + 1) % phrases.length;
+  while (seen.has(index)) {
+    index = (index + 1) % phrases.length;
+  }
   return phrases[index];
+}
+
+export function getPhraseIndex(phrase: Phrase): number {
+  return phrases.indexOf(phrase);
 }
 
 const STORAGE_PREFIX = "daily-phrase:done:";

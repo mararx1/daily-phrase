@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getTodayPhrase, isDoneToday, markDoneToday } from "@/lib/daily";
+import {
+  getAnotherPhrase,
+  getPhraseIndex,
+  getTodayPhrase,
+  getTodayPhraseIndex,
+  isDoneToday,
+  markDoneToday,
+} from "@/lib/daily";
 
 function SoundIcon() {
   return (
@@ -55,8 +62,12 @@ function CheckIcon() {
 }
 
 export default function Home() {
-  const [phrase] = useState(() => getTodayPhrase());
+  const [phrase, setPhrase] = useState(() => getTodayPhrase());
+  const [seenIndexes, setSeenIndexes] = useState<number[]>(() => [
+    getTodayPhraseIndex(),
+  ]);
   const [done, setDone] = useState(false);
+  const [extra, setExtra] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [speaking, setSpeaking] = useState(false);
 
@@ -88,7 +99,24 @@ export default function Home() {
 
   const handleDone = () => {
     markDoneToday();
+    setExtra(false);
     setDone(true);
+  };
+
+  const handleWantMore = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setSpeaking(false);
+
+    const next = getAnotherPhrase(seenIndexes);
+    const nextIndex = getPhraseIndex(next);
+    setPhrase(next);
+    setSeenIndexes((prev) =>
+      nextIndex === -1 || prev.includes(nextIndex) ? prev : [...prev, nextIndex],
+    );
+    setExtra(true);
+    setDone(false);
   };
 
   if (!mounted) {
@@ -97,14 +125,23 @@ export default function Home() {
 
   if (done) {
     return (
-      <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-surface px-6 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
-        <div className="flex flex-col items-center gap-5 text-center transition-opacity duration-300">
+      <main className="flex min-h-[100dvh] flex-col bg-surface px-6 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center transition-opacity duration-300">
           <CheckIcon />
           <p className="text-lg font-medium text-ink">Done for today</p>
           <p className="max-w-xs text-2xl font-semibold leading-snug text-ink">
             {phrase.phrase}
           </p>
           <p className="text-sm text-muted">Come back tomorrow</p>
+        </div>
+        <div className="pb-8 pt-4">
+          <button
+            type="button"
+            onClick={handleWantMore}
+            className="w-full rounded-2xl border border-line bg-transparent py-4 text-base font-medium text-ink transition-transform active:scale-[0.98] active:bg-line"
+          >
+            I want more
+          </button>
         </div>
       </main>
     );
@@ -114,7 +151,7 @@ export default function Home() {
     <main className="flex min-h-[100dvh] flex-col bg-surface px-6 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
       <div className="flex flex-1 flex-col items-center justify-center gap-6 py-10 text-center">
         <p className="text-sm font-medium uppercase tracking-wide text-muted">
-          Today&rsquo;s phrase
+          {extra ? "One more phrase" : "Today's phrase"}
         </p>
 
         <div className="flex flex-col items-center gap-2">
