@@ -157,18 +157,23 @@ export default function Home() {
           <p className="max-w-xs text-base text-muted">{phrase.translation}</p>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={handleListen}
-            aria-pressed={speaking}
-            className={`flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-sm font-medium text-ink transition-colors active:bg-line ${
-              speaking ? "bg-line" : ""
-            }`}
-          >
-            <SoundIcon />
-            Listen
-          </button>
+        <button
+          type="button"
+          onClick={handleListen}
+          aria-pressed={speaking}
+          className={`flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-sm font-medium text-ink transition-colors active:bg-line ${
+            speaking ? "bg-line" : ""
+          }`}
+        >
+          <SoundIcon />
+          Listen
+        </button>
+
+        <div className="mt-4 flex max-w-xs flex-col items-center gap-3 border-t border-line pt-5">
+          <div className="flex flex-col items-center gap-1.5">
+            <p className="text-base text-ink">{phrase.example}</p>
+            <p className="text-sm text-muted">{phrase.exampleTranslation}</p>
+          </div>
           <button
             type="button"
             onClick={handleListenExample}
@@ -178,11 +183,6 @@ export default function Home() {
             <SoundIcon />
             Example
           </button>
-        </div>
-
-        <div className="mt-4 flex max-w-xs flex-col items-center gap-1.5 border-t border-line pt-5">
-          <p className="text-base text-ink">{phrase.example}</p>
-          <p className="text-sm text-muted">{phrase.exampleTranslation}</p>
         </div>
       </div>
 
