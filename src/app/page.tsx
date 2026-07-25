@@ -9,6 +9,7 @@ import {
   isDoneToday,
   markDoneToday,
 } from "@/lib/daily";
+import { prepareSpeechEngine, speakEnglish, stopSpeaking } from "@/lib/speech";
 
 function SoundIcon() {
   return (
@@ -74,39 +75,34 @@ export default function Home() {
   useEffect(() => {
     setDone(isDoneToday());
     setMounted(true);
+    prepareSpeechEngine();
   }, []);
 
   const handleListen = () => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      return;
-    }
-    const synth = window.speechSynthesis;
-    synth.cancel();
+    speakEnglish(phrase.phrase, {
+      onStart: () => setSpeaking(true),
+      onEnd: () => setSpeaking(false),
+    });
+  };
 
-    const utterance = new SpeechSynthesisUtterance(phrase.phrase);
-    utterance.lang = "en-US";
-
-    const voices = synth.getVoices();
-    const englishVoice = voices.find((v) => v.lang.startsWith("en"));
-    if (englishVoice) utterance.voice = englishVoice;
-
-    utterance.onstart = () => setSpeaking(true);
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
-
-    synth.speak(utterance);
+  const handleListenExample = () => {
+    speakEnglish(phrase.example, {
+      rate: 0.86,
+      onStart: () => setSpeaking(true),
+      onEnd: () => setSpeaking(false),
+    });
   };
 
   const handleDone = () => {
+    stopSpeaking();
+    setSpeaking(false);
     markDoneToday();
     setExtra(false);
     setDone(true);
   };
 
   const handleWantMore = () => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    stopSpeaking();
     setSpeaking(false);
 
     const next = getAnotherPhrase(seenIndexes);
@@ -161,15 +157,28 @@ export default function Home() {
           <p className="max-w-xs text-base text-muted">{phrase.translation}</p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleListen}
-          aria-pressed={speaking}
-          className="flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-sm font-medium text-ink transition-colors active:bg-line"
-        >
-          <SoundIcon />
-          Listen
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={handleListen}
+            aria-pressed={speaking}
+            className={`flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-sm font-medium text-ink transition-colors active:bg-line ${
+              speaking ? "bg-line" : ""
+            }`}
+          >
+            <SoundIcon />
+            Listen
+          </button>
+          <button
+            type="button"
+            onClick={handleListenExample}
+            aria-pressed={speaking}
+            className="flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-sm font-medium text-muted transition-colors active:bg-line"
+          >
+            <SoundIcon />
+            Example
+          </button>
+        </div>
 
         <div className="mt-4 flex max-w-xs flex-col items-center gap-1.5 border-t border-line pt-5">
           <p className="text-base text-ink">{phrase.example}</p>
