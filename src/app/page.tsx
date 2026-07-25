@@ -80,6 +80,7 @@ export default function Home() {
 
   const handleListen = () => {
     speakEnglish(phrase.phrase, {
+      gender: "female",
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),
     });
@@ -87,6 +88,7 @@ export default function Home() {
 
   const handleListenExample = () => {
     speakEnglish(phrase.example, {
+      gender: "male",
       rate: 0.86,
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),

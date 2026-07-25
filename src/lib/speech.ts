@@ -1,18 +1,80 @@
+export type VoiceGender = "female" | "male";
+
 type SpeakOptions = {
   onStart?: () => void;
   onEnd?: () => void;
   /** Slightly slower for teaching clarity. Default 0.9 */
   rate?: number;
+  /** Phrase = female, Example = male */
+  gender?: VoiceGender;
 };
 
-let cachedVoice: SpeechSynthesisVoice | null = null;
+let femaleVoice: SpeechSynthesisVoice | null = null;
+let maleVoice: SpeechSynthesisVoice | null = null;
 let voicesLoaded = false;
+
+const FEMALE_HINTS = [
+  "samantha",
+  "victoria",
+  "karen",
+  "moira",
+  "fiona",
+  "tessa",
+  "veena",
+  "kate",
+  "serena",
+  "zira",
+  "hazel",
+  "aria",
+  "jenny",
+  "sara",
+  "susan",
+  "allison",
+  "emily",
+  "woman",
+  "female",
+  "google us english",
+  "google uk english female",
+];
+
+const MALE_HINTS = [
+  "daniel",
+  "david",
+  "mark",
+  "james",
+  "thomas",
+  "fred",
+  "guy",
+  "tony",
+  "aaron",
+  "nathan",
+  "rishi",
+  "oliver",
+  "man",
+  "male",
+  "google uk english male",
+  "microsoft david",
+  "microsoft mark",
+  "microsoft guy",
+];
 
 function isSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
 }
 
-function scoreVoice(voice: SpeechSynthesisVoice): number {
+function detectGender(voice: SpeechSynthesisVoice): VoiceGender | null {
+  const name = voice.name.toLowerCase();
+
+  if (MALE_HINTS.some((h) => name.includes(h))) return "male";
+  if (FEMALE_HINTS.some((h) => name.includes(h))) return "female";
+
+  // Common Apple default: Alex is male; most unmarked "Google US English" is female-ish
+  if (name.includes("alex") && !name.includes("compact")) return "male";
+
+  return null;
+}
+
+function qualityScore(voice: SpeechSynthesisVoice): number {
   const name = voice.name.toLowerCase();
   const lang = voice.lang.toLowerCase();
 
@@ -31,17 +93,6 @@ function scoreVoice(voice: SpeechSynthesisVoice): number {
   if (name.includes("enhanced")) score += 32;
   if (name.includes("premium")) score += 30;
   if (name.includes("natural")) score += 22;
-
-  if (name.includes("aria")) score += 34;
-  if (name.includes("jenny")) score += 32;
-  if (name.includes("guy")) score += 24;
-  if (name.includes("samantha")) score += 30;
-  if (name.includes("daniel")) score += 26;
-  if (name.includes("karen")) score += 20;
-  if (name.includes("moira")) score += 16;
-  if (name.includes("alex") && !name.includes("compact")) score += 18;
-  if (name.includes("siri")) score += 14;
-
   if (!voice.localService) score += 12;
 
   if (name.includes("compact")) score -= 50;
@@ -53,12 +104,16 @@ function scoreVoice(voice: SpeechSynthesisVoice): number {
   return score;
 }
 
-function pickBestVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+function pickBest(
+  voices: SpeechSynthesisVoice[],
+  gender: VoiceGender,
+): SpeechSynthesisVoice | null {
   let best: SpeechSynthesisVoice | null = null;
   let bestScore = -Infinity;
 
   for (const voice of voices) {
-    const score = scoreVoice(voice);
+    if (detectGender(voice) !== gender) continue;
+    const score = qualityScore(voice);
     if (score > bestScore) {
       bestScore = score;
       best = voice;
@@ -71,10 +126,29 @@ function pickBestVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | n
 function refreshVoices(): SpeechSynthesisVoice[] {
   if (!isSupported()) return [];
   const voices = window.speechSynthesis.getVoices();
-  if (voices.length) {
-    cachedVoice = pickBestVoice(voices);
-    voicesLoaded = true;
+  if (!voices.length) return voices;
+
+  femaleVoice = pickBest(voices, "female");
+  maleVoice = pickBest(voices, "male");
+
+  // Fallbacks if gender labels are sparse on this device
+  if (!femaleVoice || !maleVoice) {
+    const ranked = [...voices]
+      .filter((v) => v.lang.toLowerCase().startsWith("en"))
+      .sort((a, b) => qualityScore(b) - qualityScore(a));
+
+    if (!femaleVoice && ranked[0]) femaleVoice = ranked[0];
+    if (!maleVoice) {
+      maleVoice =
+        ranked.find((v) => v !== femaleVoice) ?? ranked[0] ?? null;
+    }
+    if (!femaleVoice) {
+      femaleVoice =
+        ranked.find((v) => v !== maleVoice) ?? ranked[0] ?? null;
+    }
   }
+
+  voicesLoaded = true;
   return voices;
 }
 
@@ -94,15 +168,9 @@ export function prepareSpeechEngine(): void {
 
   synth.addEventListener("voiceschanged", onVoices);
 
-  // Some browsers populate voices slightly later
   window.setTimeout(refreshVoices, 100);
   window.setTimeout(refreshVoices, 500);
   window.setTimeout(refreshVoices, 1200);
-}
-
-export function getActiveVoiceName(): string | null {
-  if (!cachedVoice) refreshVoices();
-  return cachedVoice?.name ?? null;
 }
 
 export function stopSpeaking(): void {
@@ -115,8 +183,8 @@ export function stopSpeaking(): void {
 }
 
 /**
- * Speaks English text with the clearest available system voice.
- * Must stay synchronous after the click (no await) — required on iOS.
+ * Speaks English text. Must stay synchronous after the click (iOS).
+ * Default gender: female (phrase). Pass gender: "male" for examples.
  */
 export function speakEnglish(text: string, options: SpeakOptions = {}): void {
   if (!isSupported() || !text.trim()) {
@@ -127,7 +195,9 @@ export function speakEnglish(text: string, options: SpeakOptions = {}): void {
   const synth = window.speechSynthesis;
   refreshVoices();
 
-  // Reset stuck Chrome/Safari state, then speak in the same user gesture.
+  const gender: VoiceGender = options.gender ?? "female";
+  const voice = gender === "male" ? maleVoice : femaleVoice;
+
   try {
     synth.cancel();
   } catch {
@@ -136,25 +206,24 @@ export function speakEnglish(text: string, options: SpeakOptions = {}): void {
 
   const utterance = new SpeechSynthesisUtterance(text.trim());
   utterance.lang =
-    cachedVoice?.lang && cachedVoice.lang.toLowerCase().startsWith("en")
-      ? cachedVoice.lang
+    voice?.lang && voice.lang.toLowerCase().startsWith("en")
+      ? voice.lang
       : "en-US";
   utterance.rate = options.rate ?? 0.9;
-  utterance.pitch = 1;
+  // Soft pitch cue if OS only exposes one usable English voice
+  utterance.pitch = gender === "female" ? 1.05 : 0.92;
   utterance.volume = 1;
 
-  if (cachedVoice) {
-    utterance.voice = cachedVoice;
+  if (voice) {
+    utterance.voice = voice;
   }
 
   utterance.onstart = () => options.onStart?.();
   utterance.onend = () => options.onEnd?.();
   utterance.onerror = () => options.onEnd?.();
 
-  // Speak immediately (keeps iOS user-activation).
   synth.speak(utterance);
 
-  // Chrome sometimes parks the utterance as paused.
   window.setTimeout(() => {
     try {
       if (synth.paused) synth.resume();

@@ -29,19 +29,26 @@ export function getTodayPhrase(): Phrase {
 }
 
 /**
- * Picks another phrase, skipping ones already seen today when possible.
+ * Picks a random phrase, skipping ones already seen today when possible.
  */
 export function getAnotherPhrase(seenIndexes: number[]): Phrase {
-  if (seenIndexes.length >= phrases.length) {
-    const next = (seenIndexes[seenIndexes.length - 1] + 1) % phrases.length;
-    return phrases[next];
+  const seen = new Set(seenIndexes);
+  const pool: number[] = [];
+
+  for (let i = 0; i < phrases.length; i++) {
+    if (!seen.has(i)) pool.push(i);
   }
 
-  const seen = new Set(seenIndexes);
-  let index = (seenIndexes[seenIndexes.length - 1] + 1) % phrases.length;
-  while (seen.has(index)) {
-    index = (index + 1) % phrases.length;
+  // All seen — pick any except the last one so it still feels random
+  if (pool.length === 0) {
+    const last = seenIndexes[seenIndexes.length - 1] ?? -1;
+    for (let i = 0; i < phrases.length; i++) {
+      if (i !== last) pool.push(i);
+    }
+    if (pool.length === 0) return phrases[0];
   }
+
+  const index = pool[Math.floor(Math.random() * pool.length)];
   return phrases[index];
 }
 
