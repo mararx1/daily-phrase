@@ -9,6 +9,16 @@ import {
   isDoneToday,
   markDoneToday,
 } from "@/lib/daily";
+import {
+  enableDailyReminder,
+  ensureRemindersOnVisit,
+  getReminderBlockReason,
+  getReminderPermission,
+  isReminderTestAvailable,
+  sendTestReminder,
+  syncDoneStateToServiceWorker,
+  type ReminderBlockReason,
+} from "@/lib/notifications";
 import { prepareSpeechEngine, speakEnglish, stopSpeaking } from "@/lib/speech";
 
 function SoundIcon() {
@@ -62,6 +72,96 @@ function CheckIcon() {
   );
 }
 
+function ReminderPanel({
+  reason,
+  enabled,
+  denied,
+  needsTap,
+  busy,
+  showTest,
+  onAllow,
+  onTest,
+}: {
+  reason: ReminderBlockReason;
+  enabled: boolean;
+  denied: boolean;
+  needsTap: boolean;
+  busy: boolean;
+  showTest: boolean;
+  onAllow: () => void;
+  onTest: () => void;
+}) {
+  if (reason === "insecure") {
+    return (
+      <p className="text-center text-xs text-muted">
+        Open via HTTPS to enable reminders
+      </p>
+    );
+  }
+
+  if (reason === "ios-install") {
+    return (
+      <p className="text-center text-xs leading-relaxed text-muted">
+        On iPhone: Share → Add to Home Screen,
+        <br />
+        then open the app icon for reminders
+      </p>
+    );
+  }
+
+  if (reason === "unsupported") {
+    return (
+      <p className="text-center text-xs text-muted">
+        Notifications not supported in this browser
+      </p>
+    );
+  }
+
+  if (denied) {
+    return (
+      <p className="text-center text-xs text-muted">
+        Notifications blocked in browser settings
+      </p>
+    );
+  }
+
+  if (needsTap) {
+    return (
+      <div className="flex flex-col items-stretch gap-1">
+        <button
+          type="button"
+          onClick={onAllow}
+          disabled={busy}
+          className="w-full rounded-2xl border border-line py-3 text-sm font-medium text-ink transition-transform active:scale-[0.98] active:bg-line disabled:opacity-50"
+        >
+          Allow phrase reminders
+        </button>
+        <p className="text-center text-xs text-muted">12:00 and 20:00 every day</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-stretch gap-1">
+      {enabled ? (
+        <p className="py-2 text-center text-xs text-muted">
+          Reminders on · 12:00 & 20:00
+        </p>
+      ) : null}
+      {showTest ? (
+        <button
+          type="button"
+          onClick={onTest}
+          disabled={busy}
+          className="w-full py-1 text-xs text-muted transition-colors active:text-ink disabled:opacity-50"
+        >
+          Send test notification
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Home() {
   const [phrase, setPhrase] = useState(() => getTodayPhrase());
   const [seenIndexes, setSeenIndexes] = useState<number[]>(() => [
@@ -71,11 +171,29 @@ export default function Home() {
   const [extra, setExtra] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [reminderReason, setReminderReason] =
+    useState<ReminderBlockReason>("unsupported");
+  const [reminderTest, setReminderTest] = useState(false);
+  const [reminderOn, setReminderOn] = useState(false);
+  const [reminderDenied, setReminderDenied] = useState(false);
+  const [reminderNeedsTap, setReminderNeedsTap] = useState(false);
+  const [reminderBusy, setReminderBusy] = useState(false);
 
   useEffect(() => {
     setDone(isDoneToday());
     setMounted(true);
     prepareSpeechEngine();
+
+    const reason = getReminderBlockReason();
+    setReminderReason(reason);
+    setReminderTest(isReminderTestAvailable());
+    if (reason !== "ok") return;
+
+    void ensureRemindersOnVisit().then((result) => {
+      setReminderOn(result.enabled);
+      setReminderDenied(result.denied);
+      setReminderNeedsTap(result.needsTap);
+    });
   }, []);
 
   const handleListen = () => {
@@ -101,6 +219,35 @@ export default function Home() {
     markDoneToday();
     setExtra(false);
     setDone(true);
+    void syncDoneStateToServiceWorker();
+  };
+
+  const handleReminderAllow = async () => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      const ok = await enableDailyReminder();
+      setReminderOn(ok);
+      setReminderNeedsTap(!ok && getReminderPermission() === "default");
+      setReminderDenied(!ok && getReminderPermission() === "denied");
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleReminderTest = async () => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      const ok = await sendTestReminder();
+      if (ok) {
+        setReminderOn(true);
+        setReminderNeedsTap(false);
+      }
+      setReminderDenied(!ok && getReminderPermission() === "denied");
+    } finally {
+      setReminderBusy(false);
+    }
   };
 
   const handleWantMore = () => {
@@ -140,6 +287,18 @@ export default function Home() {
           >
             I want more
           </button>
+          <div className="mt-2">
+            <ReminderPanel
+              reason={reminderReason}
+              enabled={reminderOn}
+              denied={reminderDenied}
+              needsTap={reminderNeedsTap}
+              busy={reminderBusy}
+              showTest={reminderTest}
+              onAllow={handleReminderAllow}
+              onTest={handleReminderTest}
+            />
+          </div>
         </div>
       </main>
     );
@@ -196,6 +355,18 @@ export default function Home() {
         >
           Done for today
         </button>
+        <div className="mt-2">
+          <ReminderPanel
+            reason={reminderReason}
+            enabled={reminderOn}
+            denied={reminderDenied}
+            needsTap={reminderNeedsTap}
+            busy={reminderBusy}
+            showTest={reminderTest}
+            onAllow={handleReminderAllow}
+            onTest={handleReminderTest}
+          />
+        </div>
       </div>
     </main>
   );

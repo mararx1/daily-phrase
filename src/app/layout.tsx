@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -43,6 +44,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-surface text-ink antialiased overscroll-none">
         {children}
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

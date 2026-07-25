@@ -1,6 +1,6 @@
 {
   "name": "Today's phrase",
-  "short_name": "Daily Phrase",
+  "short_name": "Today's phrase",
   "description": "One English phrase a day.",
   "start_url": "/",
   "display": "standalone",

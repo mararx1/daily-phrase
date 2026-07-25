@@ -12,20 +12,35 @@ export function getTodayKey(): string {
 }
 
 /**
- * Deterministically picks today's phrase from the local calendar date,
+ * Deterministically picks a phrase from a YYYY-MM-DD key,
  * so it stays the same across reloads within the same day.
  */
-export function getTodayPhraseIndex(): number {
-  const todayKey = getTodayKey();
+export function getPhraseIndexForDateKey(dateKey: string): number {
   let hash = 0;
-  for (let i = 0; i < todayKey.length; i++) {
-    hash = (hash * 31 + todayKey.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < dateKey.length; i++) {
+    hash = (hash * 31 + dateKey.charCodeAt(i)) >>> 0;
   }
   return hash % phrases.length;
 }
 
+export function getPhraseForDateKey(dateKey: string): Phrase {
+  return phrases[getPhraseIndexForDateKey(dateKey)];
+}
+
+export function getTodayPhraseIndex(): number {
+  return getPhraseIndexForDateKey(getTodayKey());
+}
+
 export function getTodayPhrase(): Phrase {
-  return phrases[getTodayPhraseIndex()];
+  return getPhraseForDateKey(getTodayKey());
+}
+
+/** Local calendar YYYY-MM-DD for a Date. */
+export function toDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**
