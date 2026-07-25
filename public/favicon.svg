@@ -1,0 +1,16 @@
+<svg width="94" height="94" viewBox="0 0 94 94" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="94" height="94" fill="#1c1c1e"/>
+  <g clip-path="url(#clip0_favicon)">
+    <path d="M0 94H31.3333V62.6667H0V94Z" fill="white"/>
+    <path d="M31.3333 62.6667H62.6667V31.3333H31.3333V62.6667Z" fill="white"/>
+    <path d="M62.6667 31.3333H94V0H62.6667V31.3333Z" fill="white"/>
+    <path d="M62.6667 62.6667H94V31.3333H62.6667V62.6667Z" fill="white"/>
+    <path d="M0 31.3333H31.3333V0H0V31.3333Z" fill="white"/>
+    <circle cx="14.9062" cy="47" r="4" fill="white"/>
+  </g>
+  <defs>
+    <clipPath id="clip0_favicon">
+      <rect width="94" height="94" fill="white" transform="matrix(1 0 0 -1 0 94)"/>
+    </clipPath>
+  </defs>
+</svg>

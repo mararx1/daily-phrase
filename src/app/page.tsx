@@ -130,7 +130,7 @@ export default function Home() {
           </p>
           <p className="text-sm text-muted">Come back tomorrow</p>
         </div>
-        <div className="pb-8 pt-4">
+        <div className="mx-auto w-full max-w-[440px] pb-8 pt-4">
           <button
             type="button"
             onClick={handleWantMore}
@@ -186,7 +186,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="pb-8 pt-4">
+      <div className="mx-auto w-full max-w-[440px] pb-8 pt-4">
         <button
           type="button"
           onClick={handleDone}
