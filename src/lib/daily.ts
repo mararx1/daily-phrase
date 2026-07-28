@@ -72,6 +72,7 @@ export function getPhraseIndex(phrase: Phrase): number {
 }
 
 const STORAGE_PREFIX = "daily-phrase:done:";
+const HISTORY_STORAGE_KEY = "daily-phrase:history";
 
 export function isDoneToday(): boolean {
   if (typeof window === "undefined") return false;
@@ -89,4 +90,53 @@ export function markDoneToday(): void {
   } catch {
     // localStorage unavailable (e.g. private mode) — fail silently
   }
+}
+
+/**
+ * Previously shown phrase indexes, newest first.
+ * Invalid / out-of-range indexes are dropped.
+ */
+export function getSeenPhraseIndexes(): number[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    const seen = new Set<number>();
+    const result: number[] = [];
+    for (const item of parsed) {
+      if (typeof item !== "number" || !Number.isInteger(item)) continue;
+      if (item < 0 || item >= phrases.length) continue;
+      if (seen.has(item)) continue;
+      seen.add(item);
+      result.push(item);
+    }
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+export function markPhraseSeen(index: number): number[] {
+  if (typeof window === "undefined") return [];
+  if (!Number.isInteger(index) || index < 0 || index >= phrases.length) {
+    return getSeenPhraseIndexes();
+  }
+
+  const next = [index, ...getSeenPhraseIndexes().filter((i) => i !== index)];
+  try {
+    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // localStorage unavailable — fail silently
+  }
+  return next;
+}
+
+export function getPhraseByIndex(index: number): Phrase | null {
+  if (!Number.isInteger(index) || index < 0 || index >= phrases.length) {
+    return null;
+  }
+  return phrases[index];
 }
