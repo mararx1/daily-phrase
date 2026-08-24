@@ -92,51 +92,86 @@ export function markDoneToday(): void {
   }
 }
 
-/**
- * Previously shown phrase indexes, newest first.
- * Invalid / out-of-range indexes are dropped.
- */
-export function getSeenPhraseIndexes(): number[] {
+function isPhraseSnapshot(value: unknown): value is Phrase {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.phrase === "string" &&
+    item.phrase.length > 0 &&
+    typeof item.translation === "string" &&
+    typeof item.example === "string" &&
+    typeof item.exampleTranslation === "string"
+  );
+}
+
+function phraseFromLegacyIndex(index: number): Phrase | null {
+  if (!Number.isInteger(index) || index < 0 || index >= phrases.length) {
+    return null;
+  }
+  return phrases[index];
+}
+
+function readHistoryRaw(): unknown[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-
-    const seen = new Set<number>();
-    const result: number[] = [];
-    for (const item of parsed) {
-      if (typeof item !== "number" || !Number.isInteger(item)) continue;
-      if (item < 0 || item >= phrases.length) continue;
-      if (seen.has(item)) continue;
-      seen.add(item);
-      result.push(item);
-    }
-    return result;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-export function markPhraseSeen(index: number): number[] {
-  if (typeof window === "undefined") return [];
-  if (!Number.isInteger(index) || index < 0 || index >= phrases.length) {
-    return getSeenPhraseIndexes();
-  }
-
-  const next = [index, ...getSeenPhraseIndexes().filter((i) => i !== index)];
+function persistHistory(items: Phrase[]): Phrase[] {
+  if (typeof window === "undefined") return items;
   try {
-    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
+    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(items));
   } catch {
     // localStorage unavailable — fail silently
   }
-  return next;
+  return items;
 }
 
-export function getPhraseByIndex(index: number): Phrase | null {
-  if (!Number.isInteger(index) || index < 0 || index >= phrases.length) {
-    return null;
+/**
+ * Previously shown phrases, newest first.
+ * Stored as full snapshots so library edits do not drop history.
+ */
+export function getSeenPhrases(): Phrase[] {
+  const parsed = readHistoryRaw();
+  const seen = new Set<string>();
+  const result: Phrase[] = [];
+  let needsRewrite = false;
+
+  for (const item of parsed) {
+    let phrase: Phrase | null = null;
+    if (isPhraseSnapshot(item)) {
+      phrase = item;
+    } else if (typeof item === "number") {
+      phrase = phraseFromLegacyIndex(item);
+      needsRewrite = true;
+    } else {
+      needsRewrite = true;
+      continue;
+    }
+
+    if (!phrase || seen.has(phrase.phrase)) {
+      if (phrase && seen.has(phrase.phrase)) needsRewrite = true;
+      continue;
+    }
+    seen.add(phrase.phrase);
+    result.push(phrase);
   }
-  return phrases[index];
+
+  if (needsRewrite) persistHistory(result);
+  return result;
+}
+
+export function markPhraseSeen(phrase: Phrase): Phrase[] {
+  if (typeof window === "undefined") return [];
+  const next = [
+    phrase,
+    ...getSeenPhrases().filter((item) => item.phrase !== phrase.phrase),
+  ];
+  return persistHistory(next);
 }

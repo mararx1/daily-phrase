@@ -3,9 +3,8 @@
 import { useEffect, useState } from "react";
 import {
   getAnotherPhrase,
-  getPhraseByIndex,
   getPhraseIndex,
-  getSeenPhraseIndexes,
+  getSeenPhrases,
   getTodayPhrase,
   getTodayPhraseIndex,
   isDoneToday,
@@ -247,7 +246,7 @@ export default function Home() {
   const [seenIndexes, setSeenIndexes] = useState<number[]>(() => [
     getTodayPhraseIndex(),
   ]);
-  const [historyIndexes, setHistoryIndexes] = useState<number[]>([]);
+  const [history, setHistory] = useState<Phrase[]>([]);
   const [view, setView] = useState<View>("learn");
   const [reviewPhrase, setReviewPhrase] = useState<Phrase | null>(null);
   const [extra, setExtra] = useState(false);
@@ -263,7 +262,8 @@ export default function Home() {
 
   useEffect(() => {
     const todayIndex = getTodayPhraseIndex();
-    setHistoryIndexes(markPhraseSeen(todayIndex));
+    const todayPhrase = getTodayPhrase();
+    setHistory(markPhraseSeen(todayPhrase));
     setSeenIndexes([todayIndex]);
 
     if (isDoneToday()) {
@@ -352,7 +352,7 @@ export default function Home() {
       nextIndex === -1 || prev.includes(nextIndex) ? prev : [...prev, nextIndex],
     );
     if (nextIndex !== -1) {
-      setHistoryIndexes(markPhraseSeen(nextIndex));
+      setHistory(markPhraseSeen(next));
     }
     setExtra(true);
     setView("learn");
@@ -360,15 +360,13 @@ export default function Home() {
 
   const openHistory = () => {
     stopSpeech();
-    setHistoryIndexes(getSeenPhraseIndexes());
+    setHistory(getSeenPhrases());
     setView("history");
   };
 
-  const openReview = (index: number) => {
-    const selected = getPhraseByIndex(index);
-    if (!selected) return;
+  const openReview = (item: Phrase) => {
     stopSpeech();
-    setReviewPhrase(selected);
+    setReviewPhrase(item);
     setView("review");
   };
 
@@ -400,25 +398,23 @@ export default function Home() {
         <div className="mx-auto w-full max-w-[440px] flex-1 pb-8 pt-4">
           <h1 className="text-2xl font-semibold text-ink">Previous phrases</h1>
           <p className="mt-1 text-sm text-muted">
-            {historyIndexes.length === 0
+            {history.length === 0
               ? "No phrases yet"
-              : `${historyIndexes.length} shown`}
+              : `${history.length} shown`}
           </p>
 
-          {historyIndexes.length === 0 ? (
+          {history.length === 0 ? (
             <p className="mt-10 text-center text-sm text-muted">
               Phrases you study will appear here
             </p>
           ) : (
             <ul className="mt-6 divide-y divide-line border-t border-line">
-              {historyIndexes.map((index) => {
-                const item = getPhraseByIndex(index);
-                if (!item) return null;
+              {history.map((item) => {
                 return (
-                  <li key={index}>
+                  <li key={item.phrase}>
                     <button
                       type="button"
-                      onClick={() => openReview(index)}
+                      onClick={() => openReview(item)}
                       className="flex w-full flex-col items-start gap-1 py-4 text-left transition-colors active:bg-line"
                     >
                       <span className="text-base font-medium leading-snug text-ink">
