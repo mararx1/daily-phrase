@@ -1,3 +1,4 @@
+import { legacyPhrases } from "./legacy-phrases";
 import { phrases, type Phrase } from "./phrases";
 
 /**
@@ -73,6 +74,8 @@ export function getPhraseIndex(phrase: Phrase): number {
 
 const STORAGE_PREFIX = "daily-phrase:done:";
 const HISTORY_STORAGE_KEY = "daily-phrase:history";
+const HISTORY_BACKUP_KEY = "daily-phrase:history:backup";
+const HISTORY_RECOVERED_KEY = "daily-phrase:history:recovered-v1";
 
 export function isDoneToday(): boolean {
   if (typeof window === "undefined") return false;
@@ -104,17 +107,29 @@ function isPhraseSnapshot(value: unknown): value is Phrase {
   );
 }
 
-function phraseFromLegacyIndex(index: number): Phrase | null {
-  if (!Number.isInteger(index) || index < 0 || index >= phrases.length) {
-    return null;
+function indexForDateKey(dateKey: string, length: number): number {
+  let hash = 0;
+  for (let i = 0; i < dateKey.length; i++) {
+    hash = (hash * 31 + dateKey.charCodeAt(i)) >>> 0;
   }
-  return phrases[index];
+  return hash % length;
 }
 
-function readHistoryRaw(): unknown[] {
+function backupHistoryRaw(): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (window.localStorage.getItem(HISTORY_BACKUP_KEY)) return;
+    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (raw) window.localStorage.setItem(HISTORY_BACKUP_KEY, raw);
+  } catch {
+    // ignore
+  }
+}
+
+function readHistoryRaw(key: string = HISTORY_STORAGE_KEY): unknown[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -133,38 +148,109 @@ function persistHistory(items: Phrase[]): Phrase[] {
   return items;
 }
 
+function addPhrase(target: Phrase[], seen: Set<string>, phrase: Phrase | null): void {
+  if (!phrase || seen.has(phrase.phrase)) return;
+  seen.add(phrase.phrase);
+  target.push(phrase);
+}
+
+function phrasesAtIndex(index: number): Phrase[] {
+  if (!Number.isInteger(index) || index < 0) return [];
+  const found: Phrase[] = [];
+  if (index < legacyPhrases.length) found.push(legacyPhrases[index]);
+  if (index < phrases.length) found.push(phrases[index]);
+  return found;
+}
+
+function recoverFromDoneKeys(): Phrase[] {
+  if (typeof window === "undefined") return [];
+  const recovered: Phrase[] = [];
+  const seen = new Set<string>();
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+      if (window.localStorage.getItem(key) !== "1") continue;
+      const dateKey = key.slice(STORAGE_PREFIX.length);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) continue;
+      addPhrase(
+        recovered,
+        seen,
+        legacyPhrases[indexForDateKey(dateKey, legacyPhrases.length)],
+      );
+      addPhrase(
+        recovered,
+        seen,
+        phrases[indexForDateKey(dateKey, phrases.length)],
+      );
+    }
+  } catch {
+    // ignore
+  }
+  return recovered;
+}
+
+function collectFromEntries(entries: unknown[], recoverLegacy: boolean): Phrase[] {
+  const result: Phrase[] = [];
+  const seen = new Set<string>();
+
+  for (const item of entries) {
+    if (isPhraseSnapshot(item)) {
+      addPhrase(result, seen, item);
+      if (recoverLegacy) {
+        const currentIndex = phrases.findIndex(
+          (entry) => entry.phrase === item.phrase,
+        );
+        if (currentIndex >= 0) {
+          addPhrase(result, seen, legacyPhrases[currentIndex] ?? null);
+        }
+      }
+      continue;
+    }
+    if (typeof item === "number") {
+      for (const phrase of phrasesAtIndex(item)) {
+        addPhrase(result, seen, phrase);
+      }
+    }
+  }
+
+  return result;
+}
+
 /**
  * Previously shown phrases, newest first.
  * Stored as full snapshots so library edits do not drop history.
  */
 export function getSeenPhrases(): Phrase[] {
-  const parsed = readHistoryRaw();
-  const seen = new Set<string>();
-  const result: Phrase[] = [];
-  let needsRewrite = false;
+  if (typeof window === "undefined") return [];
 
-  for (const item of parsed) {
-    let phrase: Phrase | null = null;
-    if (isPhraseSnapshot(item)) {
-      phrase = item;
-    } else if (typeof item === "number") {
-      phrase = phraseFromLegacyIndex(item);
-      needsRewrite = true;
-    } else {
-      needsRewrite = true;
-      continue;
-    }
-
-    if (!phrase || seen.has(phrase.phrase)) {
-      if (phrase && seen.has(phrase.phrase)) needsRewrite = true;
-      continue;
-    }
-    seen.add(phrase.phrase);
-    result.push(phrase);
+  let recovered = false;
+  try {
+    recovered = window.localStorage.getItem(HISTORY_RECOVERED_KEY) === "1";
+  } catch {
+    recovered = true;
   }
 
-  if (needsRewrite) persistHistory(result);
-  return result;
+  if (!recovered) {
+    backupHistoryRaw();
+    const mergedEntries = [
+      ...readHistoryRaw(HISTORY_STORAGE_KEY),
+      ...readHistoryRaw(HISTORY_BACKUP_KEY),
+    ];
+    const restored = collectFromEntries(mergedEntries, true);
+    for (const phrase of recoverFromDoneKeys()) {
+      if (restored.some((item) => item.phrase === phrase.phrase)) continue;
+      restored.push(phrase);
+    }
+    try {
+      window.localStorage.setItem(HISTORY_RECOVERED_KEY, "1");
+    } catch {
+      // ignore
+    }
+    return persistHistory(restored);
+  }
+
+  return collectFromEntries(readHistoryRaw(), false);
 }
 
 export function markPhraseSeen(phrase: Phrase): Phrase[] {
