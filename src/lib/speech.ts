@@ -59,7 +59,16 @@ const MALE_HINTS = [
 ];
 
 function isSupported(): boolean {
-  return typeof window !== "undefined" && "speechSynthesis" in window;
+  if (typeof window === "undefined") return false;
+  try {
+    return "speechSynthesis" in window && window.speechSynthesis != null;
+  } catch {
+    return false;
+  }
+}
+
+export function isSpeechSupported(): boolean {
+  return isSupported();
 }
 
 function detectGender(voice: SpeechSynthesisVoice): VoiceGender | null {
@@ -125,7 +134,12 @@ function pickBest(
 
 function refreshVoices(): SpeechSynthesisVoice[] {
   if (!isSupported()) return [];
-  const voices = window.speechSynthesis.getVoices();
+  let voices: SpeechSynthesisVoice[] = [];
+  try {
+    voices = window.speechSynthesis.getVoices();
+  } catch {
+    return [];
+  }
   if (!voices.length) return voices;
 
   femaleVoice = pickBest(voices, "female");
@@ -156,21 +170,28 @@ function refreshVoices(): SpeechSynthesisVoice[] {
 export function prepareSpeechEngine(): void {
   if (!isSupported()) return;
 
-  refreshVoices();
+  try {
+    refreshVoices();
+  } catch {
+    return;
+  }
 
   const synth = window.speechSynthesis;
-  const onVoices = () => {
-    refreshVoices();
-    if (voicesLoaded) {
-      synth.removeEventListener("voiceschanged", onVoices);
-    }
-  };
+  try {
+    const onVoices = () => {
+      refreshVoices();
+      if (voicesLoaded) {
+        synth.removeEventListener("voiceschanged", onVoices);
+      }
+    };
 
-  synth.addEventListener("voiceschanged", onVoices);
-
-  window.setTimeout(refreshVoices, 100);
-  window.setTimeout(refreshVoices, 500);
-  window.setTimeout(refreshVoices, 1200);
+    synth.addEventListener("voiceschanged", onVoices);
+    window.setTimeout(refreshVoices, 100);
+    window.setTimeout(refreshVoices, 500);
+    window.setTimeout(refreshVoices, 1200);
+  } catch {
+    // ignore
+  }
 }
 
 export function stopSpeaking(): void {
@@ -186,14 +207,18 @@ export function stopSpeaking(): void {
  * Speaks English text. Must stay synchronous after the click (iOS).
  * Default gender: female (phrase). Pass gender: "male" for examples.
  */
-export function speakEnglish(text: string, options: SpeakOptions = {}): void {
+export function speakEnglish(text: string, options: SpeakOptions = {}): boolean {
   if (!isSupported() || !text.trim()) {
-    options.onEnd?.();
-    return;
+    return false;
   }
 
-  const synth = window.speechSynthesis;
-  refreshVoices();
+  let synth: SpeechSynthesis;
+  try {
+    synth = window.speechSynthesis;
+    refreshVoices();
+  } catch {
+    return false;
+  }
 
   const gender: VoiceGender = options.gender ?? "female";
   const voice = gender === "male" ? maleVoice : femaleVoice;
@@ -222,7 +247,11 @@ export function speakEnglish(text: string, options: SpeakOptions = {}): void {
   utterance.onend = () => options.onEnd?.();
   utterance.onerror = () => options.onEnd?.();
 
-  synth.speak(utterance);
+  try {
+    synth.speak(utterance);
+  } catch {
+    return false;
+  }
 
   window.setTimeout(() => {
     try {
@@ -231,4 +260,6 @@ export function speakEnglish(text: string, options: SpeakOptions = {}): void {
       // ignore
     }
   }, 0);
+
+  return true;
 }

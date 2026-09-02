@@ -71,22 +71,89 @@ export function getPhraseIndex(phrase: Phrase): number {
   return phrases.indexOf(phrase);
 }
 
-const STORAGE_PREFIX = "daily-phrase:done:";
+export function getPhraseByIndex(index: number): Phrase | null {
+  if (index < 0 || index >= phrases.length) return null;
+  return phrases[index];
+}
 
-export function isDoneToday(): boolean {
-  if (typeof window === "undefined") return false;
+const STORAGE_PREFIX = "daily-phrase:done:";
+const EXTRA_VIEW_KEY = "daily-phrase:extra-view";
+
+function readStore(store: Storage, key: string): string | null {
   try {
-    return window.localStorage.getItem(STORAGE_PREFIX + getTodayKey()) === "1";
+    return store.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStore(store: Storage, key: string, value: string): boolean {
+  try {
+    store.setItem(key, value);
+    return true;
   } catch {
     return false;
   }
 }
 
-export function markDoneToday(): void {
+function doneStorageKey(): string {
+  return STORAGE_PREFIX + getTodayKey();
+}
+
+export function isDoneToday(): boolean {
+  if (typeof window === "undefined") return false;
+  const key = doneStorageKey();
+  return (
+    readStore(window.localStorage, key) === "1" ||
+    readStore(window.sessionStorage, key) === "1"
+  );
+}
+
+/** Persists done; falls back to sessionStorage if localStorage is blocked. */
+export function markDoneToday(): boolean {
+  if (typeof window === "undefined") return false;
+  const key = doneStorageKey();
+  if (writeStore(window.localStorage, key, "1")) return true;
+  return writeStore(window.sessionStorage, key, "1");
+}
+
+export type ExtraView = {
+  dateKey: string;
+  index: number;
+  seen: number[];
+};
+
+export function loadExtraView(): ExtraView | null {
+  if (typeof window === "undefined") return null;
+  const raw = readStore(window.sessionStorage, EXTRA_VIEW_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as ExtraView;
+    if (
+      parsed.dateKey !== getTodayKey() ||
+      typeof parsed.index !== "number" ||
+      !Array.isArray(parsed.seen)
+    ) {
+      clearExtraView();
+      return null;
+    }
+    return parsed;
+  } catch {
+    clearExtraView();
+    return null;
+  }
+}
+
+export function saveExtraView(view: ExtraView): void {
+  if (typeof window === "undefined") return;
+  writeStore(window.sessionStorage, EXTRA_VIEW_KEY, JSON.stringify(view));
+}
+
+export function clearExtraView(): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_PREFIX + getTodayKey(), "1");
+    window.sessionStorage.removeItem(EXTRA_VIEW_KEY);
   } catch {
-    // localStorage unavailable (e.g. private mode) — fail silently
+    // ignore
   }
 }

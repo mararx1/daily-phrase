@@ -194,8 +194,8 @@ async function activateReminders(): Promise<boolean> {
 }
 
 /**
- * On app open: request permission if needed, then arm 12:00 & 20:00.
- * Some browsers require a tap — then `needsTap` is true.
+ * On app open: arm the schedule only if the user already opted in.
+ * Never prompt for permission without a tap.
  */
 export async function ensureRemindersOnVisit(): Promise<ReminderVisitResult> {
   if (!isNotificationsSupported()) {
@@ -210,23 +210,11 @@ export async function ensureRemindersOnVisit(): Promise<ReminderVisitResult> {
   }
 
   if (Notification.permission === "granted") {
-    await activateReminders();
-    return { enabled: true, denied: false, needsTap: false };
-  }
-
-  // permission === "default" — try native prompt immediately
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
+    if (getReminderEnabled()) {
       await activateReminders();
       return { enabled: true, denied: false, needsTap: false };
     }
-    if (permission === "denied") {
-      setReminderEnabled(false);
-      return { enabled: false, denied: true, needsTap: false };
-    }
-  } catch {
-    // gesture required
+    return { enabled: false, denied: false, needsTap: false };
   }
 
   return { enabled: false, denied: false, needsTap: true };
@@ -262,12 +250,7 @@ function notificationBadgeUrl(): string {
 /** Fires the same notification payload immediately (for local preview). */
 export async function sendTestReminder(): Promise<boolean> {
   if (!isNotificationsSupported()) return false;
-
-  let permission = Notification.permission;
-  if (permission === "default") {
-    permission = await Notification.requestPermission();
-  }
-  if (permission !== "granted") return false;
+  if (Notification.permission !== "granted") return false;
 
   const today = getTodayPhrase();
   const options: NotificationOptions = {

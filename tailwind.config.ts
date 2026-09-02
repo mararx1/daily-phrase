@@ -8,10 +8,10 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#1c1c1e",
-        muted: "#6e6e73",
-        surface: "#fafafa",
-        line: "#e5e5e7",
+        ink: "var(--ink)",
+        muted: "var(--muted)",
+        surface: "var(--surface)",
+        line: "var(--line)",
       },
       fontFamily: {
         sans: [
