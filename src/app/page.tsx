@@ -327,11 +327,7 @@ export default function Home() {
     setPlaying(null);
   };
 
-  const playClip = (
-    clip: Exclude<Playing, null>,
-    text: string,
-    gender: "female" | "male",
-  ) => {
+  const playClip = (clip: Exclude<Playing, null>, text: string) => {
     if (playing === clip) {
       haltSpeech();
       return;
@@ -341,8 +337,7 @@ export default function Home() {
       return;
     }
     const started = speakEnglish(text, {
-      gender,
-      rate: clip === "example" ? 0.86 : undefined,
+      kind: clip,
       onStart: () => setPlaying(clip),
       onEnd: () => setPlaying((current) => (current === clip ? null : current)),
     });
@@ -505,7 +500,7 @@ export default function Home() {
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => playClip("phrase", phrase.phrase, "female")}
+                  onClick={() => playClip("phrase", phrase.phrase)}
                   aria-pressed={playing === "phrase"}
                   aria-label={
                     playing === "phrase" ? "Stop phrase" : "Listen to phrase"
@@ -538,7 +533,7 @@ export default function Home() {
               </p>
               <button
                 type="button"
-                onClick={() => playClip("example", phrase.example, "male")}
+                onClick={() => playClip("example", phrase.example)}
                 aria-pressed={playing === "example"}
                   aria-label={
                     playing === "example" ? "Stop example" : "Listen to example"

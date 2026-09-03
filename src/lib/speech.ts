@@ -1,62 +1,72 @@
-export type VoiceGender = "female" | "male";
-
 type SpeakOptions = {
   onStart?: () => void;
   onEnd?: () => void;
-  /** Slightly slower for teaching clarity. Default 0.9 */
-  rate?: number;
-  /** Phrase = female, Example = male */
-  gender?: VoiceGender;
+  /** Phrase is a bit snappier; example is slower, chunked, male voice. */
+  kind?: "phrase" | "example";
 };
 
-let femaleVoice: SpeechSynthesisVoice | null = null;
-let maleVoice: SpeechSynthesisVoice | null = null;
+let phraseVoice: SpeechSynthesisVoice | null = null;
+let exampleVoice: SpeechSynthesisVoice | null = null;
 let voicesLoaded = false;
+let speakGeneration = 0;
 
-const FEMALE_HINTS = [
+const PREMIUM_HINTS = [
+  "premium",
+  "enhanced",
+  "neural",
+  "natural",
+  "siri",
+  "online",
+];
+
+const FEMALE_NAMES = [
   "samantha",
+  "nicky",
+  "zoe",
+  "ava",
+  "allison",
+  "susan",
   "victoria",
   "karen",
   "moira",
-  "fiona",
   "tessa",
-  "veena",
-  "kate",
   "serena",
-  "zira",
-  "hazel",
+  "kate",
   "aria",
   "jenny",
-  "sara",
-  "susan",
-  "allison",
-  "emily",
-  "woman",
+  "zira",
+  "hazel",
+  "fiona",
+  "veena",
+  "samantha",
   "female",
-  "google us english",
-  "google uk english female",
+  "woman",
 ];
 
-const MALE_HINTS = [
+const MALE_NAMES = [
+  "aaron",
   "daniel",
+  "alex",
+  "tom",
+  "oliver",
+  "rishi",
+  "nathan",
   "david",
-  "mark",
   "james",
   "thomas",
-  "fred",
+  "lee",
+  "bruce",
+  "gordon",
   "guy",
-  "tony",
-  "aaron",
-  "nathan",
-  "rishi",
-  "oliver",
-  "man",
+  "mark",
+  "evan",
+  "noah",
   "male",
-  "google uk english male",
-  "microsoft david",
-  "microsoft mark",
-  "microsoft guy",
+  "man",
 ];
+
+const BAD_NAME =
+  /fred|compact|eloquence|novelty|whisper|albert|zarvox|trinoids|boing|bells|bubbles|cellos|deranged|jester|organ|superstar|wobbles|bad news|good news|bahh|princess|junior|ralph|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley/;
 
 function isSupported(): boolean {
   if (typeof window === "undefined") return false;
@@ -71,15 +81,14 @@ export function isSpeechSupported(): boolean {
   return isSupported();
 }
 
-function detectGender(voice: SpeechSynthesisVoice): VoiceGender | null {
+function hasWord(name: string, word: string): boolean {
+  return new RegExp(`(?:^|[^a-z])${word}(?:[^a-z]|$)`).test(name);
+}
+
+function detectGender(voice: SpeechSynthesisVoice): "female" | "male" | null {
   const name = voice.name.toLowerCase();
-
-  if (MALE_HINTS.some((h) => name.includes(h))) return "male";
-  if (FEMALE_HINTS.some((h) => name.includes(h))) return "female";
-
-  // Common Apple default: Alex is male; most unmarked "Google US English" is female-ish
-  if (name.includes("alex") && !name.includes("compact")) return "male";
-
+  if (FEMALE_NAMES.some((word) => hasWord(name, word))) return "female";
+  if (MALE_NAMES.some((word) => hasWord(name, word))) return "male";
   return null;
 }
 
@@ -88,34 +97,25 @@ function qualityScore(voice: SpeechSynthesisVoice): number {
   const lang = voice.lang.toLowerCase();
 
   if (!lang.startsWith("en")) return -Infinity;
+  if (BAD_NAME.test(name)) return -Infinity;
 
   let score = 0;
 
-  if (lang === "en-us") score += 55;
-  else if (lang === "en-gb") score += 42;
-  else if (lang.startsWith("en-")) score += 28;
-  else score += 15;
+  if (lang === "en-us") score += 60;
+  else if (lang === "en-gb") score += 44;
+  else if (lang.startsWith("en-")) score += 24;
+  else score += 10;
 
-  if (name.includes("google")) score += 48;
-  if (name.includes("neural")) score += 40;
-  if (name.includes("online") && name.includes("natural")) score += 36;
-  if (name.includes("enhanced")) score += 32;
-  if (name.includes("premium")) score += 30;
-  if (name.includes("natural")) score += 22;
-  if (!voice.localService) score += 12;
-
-  if (name.includes("compact")) score -= 50;
-  if (name.includes("eloquence")) score -= 30;
-  if (name.includes("novelty") || name.includes("bad news")) score -= 80;
-  if (name.includes("whisper")) score -= 40;
-  if (name.includes("superstar") || name.includes("organ")) score -= 80;
+  if (PREMIUM_HINTS.some((hint) => name.includes(hint))) score += 48;
+  if (name.includes("google")) score += 42;
+  if (!voice.localService) score += 10;
 
   return score;
 }
 
 function pickBest(
   voices: SpeechSynthesisVoice[],
-  gender: VoiceGender,
+  gender: "female" | "male",
 ): SpeechSynthesisVoice | null {
   let best: SpeechSynthesisVoice | null = null;
   let bestScore = -Infinity;
@@ -132,6 +132,19 @@ function pickBest(
   return bestScore > -Infinity ? best : null;
 }
 
+function pickAnyEnglish(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  let best: SpeechSynthesisVoice | null = null;
+  let bestScore = -Infinity;
+  for (const voice of voices) {
+    const score = qualityScore(voice);
+    if (score > bestScore) {
+      bestScore = score;
+      best = voice;
+    }
+  }
+  return best;
+}
+
 function refreshVoices(): SpeechSynthesisVoice[] {
   if (!isSupported()) return [];
   let voices: SpeechSynthesisVoice[] = [];
@@ -142,26 +155,9 @@ function refreshVoices(): SpeechSynthesisVoice[] {
   }
   if (!voices.length) return voices;
 
-  femaleVoice = pickBest(voices, "female");
-  maleVoice = pickBest(voices, "male");
-
-  // Fallbacks if gender labels are sparse on this device
-  if (!femaleVoice || !maleVoice) {
-    const ranked = [...voices]
-      .filter((v) => v.lang.toLowerCase().startsWith("en"))
-      .sort((a, b) => qualityScore(b) - qualityScore(a));
-
-    if (!femaleVoice && ranked[0]) femaleVoice = ranked[0];
-    if (!maleVoice) {
-      maleVoice =
-        ranked.find((v) => v !== femaleVoice) ?? ranked[0] ?? null;
-    }
-    if (!femaleVoice) {
-      femaleVoice =
-        ranked.find((v) => v !== maleVoice) ?? ranked[0] ?? null;
-    }
-  }
-
+  const fallback = pickAnyEnglish(voices);
+  phraseVoice = pickBest(voices, "female") ?? fallback;
+  exampleVoice = pickBest(voices, "male") ?? fallback;
   voicesLoaded = true;
   return voices;
 }
@@ -195,6 +191,7 @@ export function prepareSpeechEngine(): void {
 }
 
 export function stopSpeaking(): void {
+  speakGeneration += 1;
   if (!isSupported()) return;
   try {
     window.speechSynthesis.cancel();
@@ -203,9 +200,40 @@ export function stopSpeaking(): void {
   }
 }
 
+function normalizeForSpeech(text: string): string {
+  return text
+    .replace(/[—–]/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitForSpeech(text: string): string[] {
+  const normalized = normalizeForSpeech(text);
+  const parts = normalized.split(/(?<=[.!?])\s+/).map((part) => part.trim()).filter(Boolean);
+  return parts.length > 0 ? parts : [normalized];
+}
+
+function makeUtterance(
+  text: string,
+  voice: SpeechSynthesisVoice | null,
+  rate: number,
+): SpeechSynthesisUtterance {
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang =
+    voice?.lang && voice.lang.toLowerCase().startsWith("en")
+      ? voice.lang
+      : "en-US";
+  utterance.rate = rate;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  if (voice) utterance.voice = voice;
+  return utterance;
+}
+
 /**
  * Speaks English text. Must stay synchronous after the click (iOS).
- * Default gender: female (phrase). Pass gender: "male" for examples.
+ * Phrase uses the best female English voice; example uses the best male
+ * English voice (Fred and novelty voices are skipped). No pitch-shifting.
  */
 export function speakEnglish(text: string, options: SpeakOptions = {}): boolean {
   if (!isSupported() || !text.trim()) {
@@ -220,8 +248,12 @@ export function speakEnglish(text: string, options: SpeakOptions = {}): boolean 
     return false;
   }
 
-  const gender: VoiceGender = options.gender ?? "female";
-  const voice = gender === "male" ? maleVoice : femaleVoice;
+  const generation = ++speakGeneration;
+  const kind = options.kind ?? "phrase";
+  const voice = kind === "example" ? exampleVoice : phraseVoice;
+  const chunks =
+    kind === "example" ? splitForSpeech(text) : [normalizeForSpeech(text)];
+  const rate = kind === "example" ? 0.92 : 0.96;
 
   try {
     synth.cancel();
@@ -229,26 +261,25 @@ export function speakEnglish(text: string, options: SpeakOptions = {}): boolean 
     // ignore
   }
 
-  const utterance = new SpeechSynthesisUtterance(text.trim());
-  utterance.lang =
-    voice?.lang && voice.lang.toLowerCase().startsWith("en")
-      ? voice.lang
-      : "en-US";
-  utterance.rate = options.rate ?? 0.9;
-  // Soft pitch cue if OS only exposes one usable English voice
-  utterance.pitch = gender === "female" ? 1.05 : 0.92;
-  utterance.volume = 1;
-
-  if (voice) {
-    utterance.voice = voice;
-  }
-
-  utterance.onstart = () => options.onStart?.();
-  utterance.onend = () => options.onEnd?.();
-  utterance.onerror = () => options.onEnd?.();
+  const isCurrent = () => generation === speakGeneration;
 
   try {
-    synth.speak(utterance);
+    chunks.forEach((chunk, index) => {
+      const utterance = makeUtterance(chunk, voice, rate);
+      const last = index === chunks.length - 1;
+      if (index === 0) {
+        utterance.onstart = () => {
+          if (isCurrent()) options.onStart?.();
+        };
+      }
+      utterance.onend = () => {
+        if (last && isCurrent()) options.onEnd?.();
+      };
+      utterance.onerror = () => {
+        if (isCurrent()) options.onEnd?.();
+      };
+      synth.speak(utterance);
+    });
   } catch {
     return false;
   }
