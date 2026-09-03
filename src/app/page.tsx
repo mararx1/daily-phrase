@@ -6,12 +6,14 @@ import {
   getAnotherPhrase,
   getPhraseByIndex,
   getPhraseIndex,
+  getSeenPhrases,
   getTodayKey,
   getTodayPhrase,
   getTodayPhraseIndex,
   isDoneToday,
   loadExtraView,
   markDoneToday,
+  markPhraseSeen,
   saveExtraView,
 } from "@/lib/daily";
 import {
@@ -26,6 +28,7 @@ import {
   syncDoneStateToServiceWorker,
   type ReminderBlockReason,
 } from "@/lib/notifications";
+import type { Phrase } from "@/lib/phrases";
 import {
   isSpeechSupported,
   prepareSpeechEngine,
@@ -34,6 +37,7 @@ import {
 } from "@/lib/speech";
 
 type Playing = "phrase" | "example" | null;
+type Screen = "main" | "history" | "review";
 
 const btnMotion =
   "transition-colors motion-reduce:transition-none motion-reduce:active:scale-100";
@@ -125,6 +129,26 @@ function CheckIcon() {
       <path
         d="M8 12.5l2.5 2.5L16 9.5"
         className="stroke-surface"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="h-5 w-5"
+      aria-hidden="true"
+    >
+      <path
+        d="M15 6l-6 6 6 6"
+        stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -239,6 +263,9 @@ export default function Home() {
   const [seenIndexes, setSeenIndexes] = useState<number[]>(() => [
     getTodayPhraseIndex(),
   ]);
+  const [history, setHistory] = useState<Phrase[]>([]);
+  const [screen, setScreen] = useState<Screen>("main");
+  const [reviewPhrase, setReviewPhrase] = useState<Phrase | null>(null);
   const [done, setDone] = useState(false);
   const [extra, setExtra] = useState(false);
   const [playing, setPlaying] = useState<Playing>(null);
@@ -261,6 +288,9 @@ export default function Home() {
     }
     prepareSpeechEngine();
 
+    const todayPhrase = getTodayPhrase();
+    setHistory(markPhraseSeen(todayPhrase));
+
     const extraView = loadExtraView();
     if (isDoneToday() && extraView) {
       const restored = getPhraseByIndex(extraView.index);
@@ -269,17 +299,18 @@ export default function Home() {
         setSeenIndexes(extraView.seen);
         setExtra(true);
         setDone(false);
+        setHistory(markPhraseSeen(restored));
       } else {
         clearExtraView();
         setDone(true);
       }
     } else if (isDoneToday()) {
-      setPhrase(getTodayPhrase());
+      setPhrase(todayPhrase);
       setDone(true);
       setExtra(false);
     } else {
       clearExtraView();
-      setPhrase(getTodayPhrase());
+      setPhrase(todayPhrase);
       setSeenIndexes([getTodayPhraseIndex()]);
     }
 
@@ -313,7 +344,7 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const persistExtra = (nextPhrase: typeof phrase, seen: number[]) => {
+  const persistExtra = (nextPhrase: Phrase, seen: number[]) => {
     const index = getPhraseIndex(nextPhrase);
     saveExtraView({
       dateKey: getTodayKey(),
@@ -358,6 +389,7 @@ export default function Home() {
     setPhrase(getTodayPhrase());
     setDone(true);
     setStatus("");
+    setScreen("main");
     void syncDoneStateToServiceWorker();
   };
 
@@ -374,6 +406,8 @@ export default function Home() {
     setSeenIndexes(seen);
     setExtra(true);
     setDone(false);
+    setScreen("main");
+    setHistory(markPhraseSeen(next));
     persistExtra(next, seen);
   };
 
@@ -385,10 +419,10 @@ export default function Home() {
     setPhrase(getTodayPhrase());
     setSeenIndexes([getTodayPhraseIndex()]);
     setDone(isDoneToday());
+    setScreen("main");
   };
 
-  const handleCopy = async () => {
-    const text = phrase.phrase;
+  const handleCopy = async (text: string) => {
     let ok = false;
     try {
       await navigator.clipboard.writeText(text);
@@ -411,6 +445,26 @@ export default function Home() {
     } else {
       setStatus("Couldn't copy the phrase.");
     }
+  };
+
+  const openHistory = () => {
+    haltSpeech();
+    setHistory(getSeenPhrases());
+    setReviewPhrase(null);
+    setScreen("history");
+  };
+
+  const openReview = (item: Phrase) => {
+    haltSpeech();
+    setCopied(false);
+    setReviewPhrase(item);
+    setScreen("review");
+  };
+
+  const leaveHistory = () => {
+    haltSpeech();
+    setReviewPhrase(null);
+    setScreen("main");
   };
 
   const handleReminderAllow = async () => {
@@ -462,10 +516,199 @@ export default function Home() {
       ? "Playing the phrase."
       : "Playing the example."
     : status;
+  const reminders = remindersReady ? (
+    <ReminderPanel
+      reason={reminderReason}
+      enabled={reminderOn}
+      denied={reminderDenied}
+      needsTap={reminderNeedsTap}
+      busy={reminderBusy}
+      showTest={reminderTest && reminderOn}
+      onAllow={handleReminderAllow}
+      onDisable={handleReminderDisable}
+      onTest={handleReminderTest}
+    />
+  ) : null;
+
+  const renderLearnBody = (target: Phrase, label: string) => (
+    <div className="flex flex-1 flex-col justify-center gap-6 py-10">
+      <p className="text-sm font-medium text-muted">
+        {label}
+        {dateText ? ` · ${dateText}` : ""}
+      </p>
+
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-semibold leading-snug text-ink">
+          {target.phrase}
+        </h1>
+        <p lang="ru" className="text-base text-muted">
+          {target.translation}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => playClip("phrase", target.phrase)}
+            aria-pressed={playing === "phrase"}
+            aria-label={
+              playing === "phrase" ? "Stop phrase" : "Listen to phrase"
+            }
+            className={`inline-flex items-center justify-center gap-2 ${
+              playing === "phrase" ? btnOutline : btnFill
+            }`}
+          >
+            {playing === "phrase" ? <StopIcon /> : <SoundIcon />}
+            {playing === "phrase" ? "Stop" : "Listen to phrase"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleCopy(target.phrase)}
+            aria-label={copied ? "Phrase copied" : "Copy phrase"}
+            className={`inline-flex items-center justify-center gap-2 ${btnOutline}`}
+          >
+            <CopyIcon />
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-line pt-5">
+        <p className="text-base leading-relaxed text-ink">{target.example}</p>
+        <p lang="ru" className="text-sm leading-relaxed text-muted">
+          {target.exampleTranslation}
+        </p>
+        <button
+          type="button"
+          onClick={() => playClip("example", target.example)}
+          aria-pressed={playing === "example"}
+          aria-label={
+            playing === "example" ? "Stop example" : "Listen to example"
+          }
+          className={`inline-flex w-fit items-center justify-center gap-2 ${
+            playing === "example" ? btnFill : btnOutline
+          }`}
+        >
+          {playing === "example" ? <StopIcon /> : <SoundIcon />}
+          {playing === "example" ? "Stop" : "Listen to example"}
+        </button>
+      </div>
+    </div>
+  );
+
+  if (screen === "history") {
+    return (
+      <main className="flex min-h-[100dvh] flex-col bg-surface px-6 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col">
+          <div className="flex items-center gap-2 pt-4">
+            <button
+              type="button"
+              onClick={leaveHistory}
+              className={`inline-flex items-center gap-1 ${btnText} w-auto`}
+              aria-label="Back"
+            >
+              <BackIcon />
+              Back
+            </button>
+          </div>
+
+          <div className="flex-1 pb-8 pt-4">
+            <h1 className="text-2xl font-semibold text-ink">Previous phrases</h1>
+            <p className="mt-1 text-sm text-muted">
+              {history.length === 0
+                ? "No phrases yet"
+                : `${history.length} shown`}
+            </p>
+
+            {history.length === 0 ? (
+              <p className="mt-10 text-sm text-muted">
+                Phrases you study will appear here
+              </p>
+            ) : (
+              <ul className="mt-6 divide-y divide-line border-t border-line">
+                {history.map((item) => (
+                  <li key={item.phrase}>
+                    <button
+                      type="button"
+                      onClick={() => openReview(item)}
+                      className="flex w-full flex-col items-start gap-1 py-4 text-left active:bg-line"
+                    >
+                      <span className="text-base font-medium leading-snug text-ink">
+                        {item.phrase}
+                      </span>
+                      <span className="text-sm text-muted">
+                        {item.translation}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (screen === "review" && reviewPhrase) {
+    return (
+      <main className="flex min-h-[100dvh] flex-col bg-surface px-6 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col">
+          <div className="flex items-center gap-2 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                haltSpeech();
+                setReviewPhrase(null);
+                setScreen("history");
+              }}
+              className={`inline-flex items-center gap-1 ${btnText} w-auto`}
+              aria-label="Back to list"
+            >
+              <BackIcon />
+              Back
+            </button>
+          </div>
+
+          {renderLearnBody(reviewPhrase, "Previous phrase")}
+
+          <div
+            className="min-h-5 text-sm text-muted"
+            role="status"
+            aria-live="polite"
+          >
+            {liveText}
+          </div>
+
+          <div className="flex flex-col gap-2 pb-8 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                haltSpeech();
+                setReviewPhrase(null);
+                setScreen("history");
+              }}
+              className={btnBlockOutline}
+            >
+              Back to list
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex min-h-[100dvh] flex-col bg-surface px-6 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col">
+        <div className="flex justify-end pt-4">
+          <button
+            type="button"
+            onClick={openHistory}
+            className={`${btnText} w-auto text-muted`}
+          >
+            Previous
+          </button>
+        </div>
+
         {showDone ? (
           <div className="flex flex-1 flex-col items-start justify-center gap-4 py-10">
             <CheckIcon />
@@ -484,69 +727,10 @@ export default function Home() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-1 flex-col justify-center gap-6 py-10">
-            <p className="text-sm font-medium text-muted">
-              {extra ? "Another phrase" : "Today's phrase"}
-              {dateText ? ` · ${dateText}` : ""}
-            </p>
-
-            <div className="flex flex-col gap-2">
-              <h1 className="text-3xl font-semibold leading-snug text-ink">
-                {phrase.phrase}
-              </h1>
-              <p lang="ru" className="text-base text-muted">
-                {phrase.translation}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => playClip("phrase", phrase.phrase)}
-                  aria-pressed={playing === "phrase"}
-                  aria-label={
-                    playing === "phrase" ? "Stop phrase" : "Listen to phrase"
-                  }
-                  className={`inline-flex items-center justify-center gap-2 ${
-                    playing === "phrase" ? btnOutline : btnFill
-                  }`}
-                >
-                  {playing === "phrase" ? <StopIcon /> : <SoundIcon />}
-                  {playing === "phrase" ? "Stop" : "Listen to phrase"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  aria-label={copied ? "Phrase copied" : "Copy phrase"}
-                  className={`inline-flex items-center justify-center gap-2 ${btnOutline}`}
-                >
-                  <CopyIcon />
-                  {copied ? "Copied" : "Copy"}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 border-t border-line pt-5">
-              <p className="text-base leading-relaxed text-ink">
-                {phrase.example}
-              </p>
-              <p lang="ru" className="text-sm leading-relaxed text-muted">
-                {phrase.exampleTranslation}
-              </p>
-              <button
-                type="button"
-                onClick={() => playClip("example", phrase.example)}
-                aria-pressed={playing === "example"}
-                  aria-label={
-                    playing === "example" ? "Stop example" : "Listen to example"
-                  }
-                  className={`inline-flex w-fit items-center justify-center gap-2 ${
-                  playing === "example" ? btnFill : btnOutline
-                }`}
-              >
-                {playing === "example" ? <StopIcon /> : <SoundIcon />}
-                {playing === "example" ? "Stop" : "Listen to example"}
-              </button>
-            </div>
-          </div>
+          renderLearnBody(
+            phrase,
+            extra ? "Another phrase" : "Today's phrase",
+          )
         )}
 
         <div
@@ -559,12 +743,29 @@ export default function Home() {
 
         <div className="flex flex-col gap-2 pb-8 pt-4">
           {showDone ? (
-            <button type="button" onClick={handleWantMore} className={btnBlockFill}>
-              Practice another phrase
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleWantMore}
+                className={btnBlockFill}
+              >
+                Practice another phrase
+              </button>
+              <button
+                type="button"
+                onClick={openHistory}
+                className={btnBlockOutline}
+              >
+                Previous phrases
+              </button>
+            </>
           ) : extra ? (
             <>
-              <button type="button" onClick={handleWantMore} className={btnBlockFill}>
+              <button
+                type="button"
+                onClick={handleWantMore}
+                className={btnBlockFill}
+              >
                 Next phrase
               </button>
               <button
@@ -572,27 +773,19 @@ export default function Home() {
                 onClick={handleBackToToday}
                 className={btnBlockOutline}
               >
-                Back to today's phrase
+                Back to today&apos;s phrase
               </button>
             </>
           ) : (
-            <button type="button" onClick={handleDone} className={btnBlockOutline}>
+            <button
+              type="button"
+              onClick={handleDone}
+              className={btnBlockOutline}
+            >
               Done for today
             </button>
           )}
-          {remindersReady ? (
-            <ReminderPanel
-              reason={reminderReason}
-              enabled={reminderOn}
-              denied={reminderDenied}
-              needsTap={reminderNeedsTap}
-              busy={reminderBusy}
-              showTest={reminderTest && reminderOn}
-              onAllow={handleReminderAllow}
-              onDisable={handleReminderDisable}
-              onTest={handleReminderTest}
-            />
-          ) : null}
+          {reminders}
         </div>
       </div>
     </main>

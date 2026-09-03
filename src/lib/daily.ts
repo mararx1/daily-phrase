@@ -1,3 +1,4 @@
+import { legacyPhrases } from "./legacy-phrases";
 import { phrases, type Phrase } from "./phrases";
 
 /**
@@ -78,6 +79,9 @@ export function getPhraseByIndex(index: number): Phrase | null {
 
 const STORAGE_PREFIX = "daily-phrase:done:";
 const EXTRA_VIEW_KEY = "daily-phrase:extra-view";
+const HISTORY_STORAGE_KEY = "daily-phrase:history";
+const HISTORY_BACKUP_KEY = "daily-phrase:history:backup";
+const HISTORY_RECOVERED_KEY = "daily-phrase:history:recovered-v1";
 
 function readStore(store: Storage, key: string): string | null {
   try {
@@ -156,4 +160,171 @@ export function clearExtraView(): void {
   } catch {
     // ignore
   }
+}
+
+function isPhraseSnapshot(value: unknown): value is Phrase {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.phrase === "string" &&
+    item.phrase.length > 0 &&
+    typeof item.translation === "string" &&
+    typeof item.example === "string" &&
+    typeof item.exampleTranslation === "string"
+  );
+}
+
+function indexForDateKey(dateKey: string, length: number): number {
+  let hash = 0;
+  for (let i = 0; i < dateKey.length; i++) {
+    hash = (hash * 31 + dateKey.charCodeAt(i)) >>> 0;
+  }
+  return hash % length;
+}
+
+function backupHistoryRaw(): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (window.localStorage.getItem(HISTORY_BACKUP_KEY)) return;
+    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (raw) window.localStorage.setItem(HISTORY_BACKUP_KEY, raw);
+  } catch {
+    // ignore
+  }
+}
+
+function readHistoryRaw(key: string = HISTORY_STORAGE_KEY): unknown[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistHistory(items: Phrase[]): Phrase[] {
+  if (typeof window === "undefined") return items;
+  try {
+    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // localStorage unavailable — fail silently
+  }
+  return items;
+}
+
+function addPhrase(target: Phrase[], seen: Set<string>, phrase: Phrase | null): void {
+  if (!phrase || seen.has(phrase.phrase)) return;
+  seen.add(phrase.phrase);
+  target.push(phrase);
+}
+
+function phrasesAtIndex(index: number): Phrase[] {
+  if (!Number.isInteger(index) || index < 0) return [];
+  const found: Phrase[] = [];
+  if (index < legacyPhrases.length) found.push(legacyPhrases[index]);
+  if (index < phrases.length) found.push(phrases[index]);
+  return found;
+}
+
+function recoverFromDoneKeys(): Phrase[] {
+  if (typeof window === "undefined") return [];
+  const recovered: Phrase[] = [];
+  const seen = new Set<string>();
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
+      if (window.localStorage.getItem(key) !== "1") continue;
+      const dateKey = key.slice(STORAGE_PREFIX.length);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) continue;
+      addPhrase(
+        recovered,
+        seen,
+        legacyPhrases[indexForDateKey(dateKey, legacyPhrases.length)],
+      );
+      addPhrase(
+        recovered,
+        seen,
+        phrases[indexForDateKey(dateKey, phrases.length)],
+      );
+    }
+  } catch {
+    // ignore
+  }
+  return recovered;
+}
+
+function collectFromEntries(entries: unknown[], recoverLegacy: boolean): Phrase[] {
+  const result: Phrase[] = [];
+  const seen = new Set<string>();
+
+  for (const item of entries) {
+    if (isPhraseSnapshot(item)) {
+      addPhrase(result, seen, item);
+      if (recoverLegacy) {
+        const currentIndex = phrases.findIndex(
+          (entry) => entry.phrase === item.phrase,
+        );
+        if (currentIndex >= 0) {
+          addPhrase(result, seen, legacyPhrases[currentIndex] ?? null);
+        }
+      }
+      continue;
+    }
+    if (typeof item === "number") {
+      for (const phrase of phrasesAtIndex(item)) {
+        addPhrase(result, seen, phrase);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Previously shown phrases, newest first.
+ * Stored as full snapshots so library edits do not drop history.
+ */
+export function getSeenPhrases(): Phrase[] {
+  if (typeof window === "undefined") return [];
+
+  let recovered = false;
+  try {
+    recovered = window.localStorage.getItem(HISTORY_RECOVERED_KEY) === "1";
+  } catch {
+    recovered = true;
+  }
+
+  if (!recovered) {
+    backupHistoryRaw();
+    const mergedEntries = [
+      ...readHistoryRaw(HISTORY_STORAGE_KEY),
+      ...readHistoryRaw(HISTORY_BACKUP_KEY),
+    ];
+    const restored = collectFromEntries(mergedEntries, true);
+    for (const phrase of recoverFromDoneKeys()) {
+      if (restored.some((item) => item.phrase === phrase.phrase)) continue;
+      restored.push(phrase);
+    }
+    try {
+      window.localStorage.setItem(HISTORY_RECOVERED_KEY, "1");
+    } catch {
+      // ignore
+    }
+    return persistHistory(restored);
+  }
+
+  return collectFromEntries(readHistoryRaw(), false);
+}
+
+export function markPhraseSeen(phrase: Phrase): Phrase[] {
+  if (typeof window === "undefined") return [];
+  const next = [
+    phrase,
+    ...getSeenPhrases().filter((item) => item.phrase !== phrase.phrase),
+  ];
+  return persistHistory(next);
 }
